@@ -615,6 +615,7 @@ import './App.css';
 function App() {
   const videoRef = useRef(null);
   const websocketRef = useRef(null); // For video
+  const gazeWebsocketRef = useRef(null); // <<-- New: For gaze
   const audioWebSocketRef = useRef(null); // For audio
   const streamingIntervalRef = useRef(null);
   const canvasRef = useRef(null);
@@ -626,6 +627,7 @@ function App() {
     head_direction: "Unknown",
     people_count: 0,
   });
+  const [gazeDirection, setGazeDirection] = useState("Unknown"); // <<-- New: Gaze direction state
 
   // Audio streaming state and refs
   const [isRecording, setIsRecording] = useState(false);
@@ -663,6 +665,18 @@ function App() {
       setDetectionData(data);
     };
 
+    // <<-- New: Gaze WebSocket connection
+    gazeWebsocketRef.current = new WebSocket("ws://127.0.0.1:8000/gaze");
+
+    gazeWebsocketRef.current.onopen = () => console.log("Gaze WebSocket connected");
+    gazeWebsocketRef.current.onclose = (event) => console.warn("Gaze WebSocket closed", event);
+    gazeWebsocketRef.current.onerror = (error) => console.error("Gaze WebSocket error", error);
+
+    gazeWebsocketRef.current.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      setGazeDirection(data.gaze_direction);
+    };
+
     // Audio WebSocket connection
     audioWebSocketRef.current = new WebSocket("ws://127.0.0.1:8001/audio");
 
@@ -679,6 +693,7 @@ function App() {
 
     return () => {
       if (websocketRef.current) websocketRef.current.close();
+      if (gazeWebsocketRef.current) gazeWebsocketRef.current.close(); // <<-- New
       if (audioWebSocketRef.current) audioWebSocketRef.current.close();
       if (videoRef.current && videoRef.current.srcObject) {
         const tracks = videoRef.current.srcObject.getTracks();
@@ -712,6 +727,10 @@ function App() {
       canvas.toBlob((blob) => {
         if (blob && websocketRef.current.readyState === WebSocket.OPEN) {
           websocketRef.current.send(blob);
+        }
+        // <<-- New: Send frame to gaze WebSocket as well
+        if (blob && gazeWebsocketRef.current && gazeWebsocketRef.current.readyState === WebSocket.OPEN) {
+          gazeWebsocketRef.current.send(blob);
         }
       }, "image/jpeg");
     }, 1000 / frameRate);
@@ -765,12 +784,19 @@ function App() {
           20,
           canvas.height - 20
         );
+
+        // <<-- New: Draw gaze direction
+        context.fillText(
+          `Gaze Direction: ${gazeDirection}`,
+          20,
+          canvas.height - 80
+        );
       }
     };
 
     const interval = setInterval(drawDetections, 1000 / frameRate);
     return () => clearInterval(interval);
-  }, [detectionData, frameRate]);
+  }, [detectionData, frameRate, gazeDirection]);
 
   // Audio streaming functions
   const startRecording = async () => {
@@ -842,6 +868,17 @@ function App() {
     console.log("Recording stopped");
   };
 
+
+  const handleStart = () => {
+    startStreaming();
+    startRecording();
+  };
+
+  const handleStop = () => {
+    stopStreaming();
+    stopRecording();
+  };
+
   return (
     <div className="app-container">
       <header className="app-header">
@@ -859,14 +896,14 @@ function App() {
         </div>
         <div className="controls">
           <button
-            onClick={startStreaming}
+            onClick={handleStart}
             disabled={isStreaming}
             className="control-button start-button"
           >
             Start Proctoring
           </button>
           <button
-            onClick={stopStreaming}
+            onClick={handleStop}
             disabled={!isStreaming}
             className="control-button stop-button"
           >
@@ -884,7 +921,7 @@ function App() {
               className="frame-rate-input"
             />
           </div>
-          <button 
+          {/* <button 
             onClick={startRecording} 
             disabled={isRecording}
             style={{ 
@@ -905,7 +942,7 @@ function App() {
             }}
           >
             Stop Recording
-          </button>
+          </button> */}
         </div>
         <div className="detection-info">
           <h2>Proctoring Details</h2>
@@ -920,6 +957,10 @@ function App() {
           </div>
           <div className="info-item">
             <strong>Speech Detected:</strong> {speechDetected ? '🗣️ Yes' : '❌ No'}
+          </div>
+          {/* <<-- New: Display gaze direction */}
+          <div className="info-item">
+            <strong>Gaze Direction:</strong> {gazeDirection}
           </div>
         </div>
         <div className="exam-status">
